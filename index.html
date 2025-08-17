@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Tic‑Tac‑Toe – p5.js + AI</title>
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.9.3/lib/p5.min.js"></script>
+    <style>body{display:flex;flex-direction:column;align-items:center;font-family:sans-serif;}#controls{margin-top:20px;}select,button{margin-left:10px;padding:4px 8px;}#gameInfo{margin-top:12px;}</style>
+</head>
+
+<body>
+<div id="gameInfo"></div>
+<div id="controls">
+    Human plays as:
+    <select id="humanSymbolSelect"><option value="X">X</option><option value="O">O</option></select>
+    |
+    AI difficulty:
+    <select id="aiDifficultySelect"><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard" selected>Hard</option></select>
+    <button id="startBtn">Start Game</button>
+    <button id="resetBtn" style="display:none;">Reset Board</button>
+</div>
+
+<script>
+    // Global state (board is now initialised immediately)
+    const BOARD_SIZE = 3;
+    let board = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(null));
+    let humanPlayer, aiPlayer;
+    let currentPlayer;
+    let gameOver = false;
+    let winner = null;
+
+    // UI helpers
+    const infoDiv = document.getElementById('gameInfo');
+    const startBtn = document.getElementById('startBtn');
+    const resetBtn = document.getElementById('resetBtn');
+
+    // Reset everything but keep the human/AI selections
+    function initGame() {
+        board = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(null));
+        gameOver = false;
+        winner = null;
+
+        currentPlayer = 'X';
+        draw();
+
+        if (currentPlayer === aiPlayer) setTimeout(playAIMove, 300);
+    }
+
+    // p5.js setup
+    function setup() {
+        createCanvas(300, 300);
+        textAlign(CENTER, CENTER);
+
+        resetBtn.style.display = 'none';
+
+        startBtn.addEventListener('click', () => {
+            humanPlayer = document.getElementById('humanSymbolSelect').value;
+            aiPlayer     = humanPlayer === 'X' ? 'O' : 'X';
+            initGame();
+            resetBtn.style.display = 'inline-block';
+        });
+
+        resetBtn.addEventListener('click', () => {
+            initGame();
+        });
+    }
+
+    // Drawing (guard added)
+    function draw() {
+        if (!board) return; // <-- prevents undefined error
+
+        background(240);
+
+        strokeWeight(4);
+        for (let i = 1; i < BOARD_SIZE; i++) {
+            line(i * width / BOARD_SIZE, 0, i * width / BOARD_SIZE, height);
+            line(0, i * height / BOARD_SIZE, width, i * height / BOARD_SIZE);
+        }
+
+        // X/O marks
+        for (let r = 0; r < BOARD_SIZE; r++) {
+            for (let c = 0; c < BOARD_SIZE; c++) {
+                const mark = board[r][c];
+                if (!mark) continue;
+
+                const x = c * width / BOARD_SIZE + width / (2 * BOARD_SIZE);
+                const y = r * height / BOARD_SIZE + height / (2 * BOARD_SIZE);
+
+                strokeWeight(8);
+                stroke(mark === 'X' ? '#e63946' : '#1d3557');
+                if (mark === 'X') {
+                    line(x - 30, y - 30, x + 30, y + 30);
+                    line(x + 30, y - 30, x - 30, y + 30);
+                } else {
+                    noFill();
+                    ellipse(x, y, 60, 60);
+                }
+            }
+        }
+
+        if (gameOver) {
+            infoDiv.textContent = winner ? `Winner: ${winner}` : "It's a draw!";
+        } else {
+            infoDiv.textContent = `Turn: ${currentPlayer}`;
+        }
+    }
+
+    // Mouse input
+    function mousePressed() {
+        if (gameOver || currentPlayer !== humanPlayer) return;
+
+        const col = floor(mouseX / (width / BOARD_SIZE));
+        const row = floor(mouseY / (height / BOARD_SIZE));
+
+        if (col < 0 || col >= BOARD_SIZE || row < 0 || row >= BOARD_SIZE) return;
+        if (board[row][col]) return;
+
+        board[row][col] = humanPlayer;
+        checkGameState();
+        if (!gameOver) {
+            togglePlayer();
+            setTimeout(playAIMove, 300);
+        }
+    }
+
+    // Turn management
+    function togglePlayer() { currentPlayer = currentPlayer === 'X' ? 'O' : 'X'; }
+
+    // Game state
+    function checkGameState() {
+        if (isWin(board, humanPlayer)) { winner = humanPlayer; gameOver = true; }
+        else if (isWin(board, aiPlayer))    { winner = aiPlayer;     gameOver = true; }
+        else if (board.flat().every(cell => cell !== null)) { winner = null; gameOver = true; }
+    }
+
+    // AI move
+    function playAIMove() {
+        if (gameOver) return;
+        const difficulty = document.getElementById('aiDifficultySelect').value;
+
+        let move;
+        switch (difficulty) {
+            case 'easy':   move = randomMove(); break;
+            case 'medium': move = mediumMove(); break;
+            default:       move = hardMove();   break; // hard
+        }
+
+        if (move) {
+            board[move.row][move.col] = aiPlayer;
+            checkGameState();
+            if (!gameOver) togglePlayer();
+        }
+    }
+
+    // AI strategies
+    function randomMove() { const avail = getAvailableMoves(); return avail.length ? avail[floor(random(avail.length))] : null; }
+
+    function mediumMove() {
+        for (const m of getAvailableMoves()) {
+            board[m.row][m.col] = aiPlayer;
+            if (isWin(board, aiPlayer)) { board[m.row][m.col] = null; return m; }
+            board[m.row][m.col] = null;
+        }
+        for (const m of getAvailableMoves()) {
+            board[m.row][m.col] = humanPlayer;
+            if (isWin(board, humanPlayer)) { board[m.row][m.col] = null; return m; }
+            board[m.row][m.col] = null;
+        }
+        return randomMove();
+    }
+
+    function hardMove() {
+        const result = minimax(board, 0, true, -Infinity, Infinity);
+        return result.move;
+    }
+
+    // Helpers
+    function getAvailableMoves() {
+        const moves = [];
+        for (let r = 0; r < BOARD_SIZE; r++)
+            for (let c = 0; c < BOARD_SIZE; c++)
+                if (!board[r][c]) moves.push({ row: r, col: c });
+        return moves;
+    }
+
+    function isWin(b, player) {
+        for (let i = 0; i < BOARD_SIZE; i++) {
+            if (b[i].every(cell => cell === player)) return true;
+            if ([0,1,2].every(j => b[j][i] === player)) return true;
+        }
+        if ([0,1,2].every(i => b[i][i] === player)) return true;
+        if ([0,1,2].every(i => b[i][BOARD_SIZE - 1 - i] === player)) return true;
+        return false;
+    }
+
+    function minimax(b, depth, isMaximizing, alpha, beta) {
+        if (isWin(b, aiPlayer))   return { score: 10 - depth };
+        if (isWin(b, humanPlayer))return { score: depth - 10 };
+        if (b.flat().every(cell => cell !== null)) return { score: 0 };
+
+        const moves = getAvailableMoves();
+        let bestMove;
+
+        if (isMaximizing) {
+            let maxEval = -Infinity;
+            for (const m of moves) {
+                b[m.row][m.col] = aiPlayer;
+                const evalVal = minimax(b, depth + 1, false, alpha, beta).score;
+                b[m.row][m.col] = null;
+
+                if (evalVal > maxEval) { maxEval = evalVal; bestMove = m; }
+                alpha = Math.max(alpha, evalVal);
+                if (beta <= alpha) break;
+            }
+            return { score: maxEval, move: bestMove };
+        } else {
+            let minEval = Infinity;
+            for (const m of moves) {
+                b[m.row][m.col] = humanPlayer;
+                const evalVal = minimax(b, depth + 1, true, alpha, beta).score;
+                b[m.row][m.col] = null;
+
+                if (evalVal < minEval) { minEval = evalVal; bestMove = m; }
+                beta = Math.min(beta, evalVal);
+                if (beta <= alpha) break;
+            }
+            return { score: minEval, move: bestMove };
+        }
+    }
+</script>
+</body>
+</html>
